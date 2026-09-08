@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghana Twi Voice Chat — speak Twi, and she answers</title>
+<meta name="description" content="Speak Twi into your microphone. A Ghanaian voice answers you in Twi. Speech recognition by griot-nano-1, voice by stable-twi-tts. Built by GhanaNLP.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+  /* Palette taken from kente cloth -- the indigo, saffron and green that run through it --
+     against a ground dark enough that a voice made of light has somewhere to glow. */
+  :root{
+    --night:#0d1a2b;
+    --night-2:#132339;
+    --ink:#f2efe8;
+    --indigo:#1b3a6b;
+    --saffron:#e8a020;
+    --leaf:#3f9c68;
+    --ember:#e5533d;
+    --clay:#9c8875;
+    --muted:#7f93ad;
+
+    --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+    --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    min-height:100vh;
+    background:
+      radial-gradient(1100px 620px at 50% 6%, #17304e 0%, rgba(19,35,57,0) 62%),
+      var(--night);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;
+  }
+  :focus-visible{outline:2px solid var(--saffron);outline-offset:3px;border-radius:3px}
+
+  .masthead{
+    display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+    padding:1.35rem clamp(1.1rem,4vw,2.6rem) 1rem;
+    border-bottom:1px solid rgba(242,239,232,.08);
+  }
+  .wordmark{
+    margin:0;font-weight:700;letter-spacing:-.018em;
+    font-size:clamp(1.1rem,2.5vw,1.42rem);
+    font-variation-settings:"opsz" 40,"wdth" 92;
+  }
+  .wordmark span{color:var(--saffron)}
+
+  /* ------------------------------------------------------------------- the voice */
+  main{
+    flex:1;display:flex;flex-direction:column;align-items:center;
+    padding:clamp(1.2rem,4vh,2.4rem) 1.1rem 0;
+  }
+  .voice{position:relative;width:min(340px,74vw);aspect-ratio:1}
+  .voice canvas{width:100%;height:100%;display:block}
+  /* The one word inside the circle names the state, so the animation never has to be
+     interpreted on its own. */
+  .state{
+    position:absolute;inset:0;display:grid;place-items:center;
+    font-size:.82rem;letter-spacing:.02em;color:var(--muted);
+    font-variation-settings:"wdth" 90;pointer-events:none;
+  }
+
+  .prompt{
+    margin:1.5rem auto 0;max-width:34ch;text-align:center;
+    font-size:.95rem;color:var(--muted);
+    transition:opacity .3s ease;
+  }
+  /* Once there is a reply on the page the instruction has done its job, and leaving it sitting
+     between the voice and her words is just clutter. */
+  .prompt.spent{opacity:0;pointer-events:none}
+
+  /* ------------------------------------------------------------- what was said */
+  .said{
+    width:100%;max-width:60ch;margin:0 auto;text-align:center;
+    overflow:hidden;height:0;
+    transition:margin .2s ease,height .2s ease;
+  }
+  .said.has-reply{margin:clamp(1.3rem,4vh,2.1rem) auto 0;height:auto}
+  .reply{
+    margin:0;font-family:var(--serif);font-weight:400;
+    font-size:clamp(1.4rem,4.3vw,2rem);line-height:1.32;text-wrap:pretty;
+  }
+  .reply:empty::before{content:"";}
+  .heard{margin:.9rem 0 0;font-size:.92rem;color:#b9c6d6}
+  .heard:empty{display:none}
+  .heard b{font-weight:500;color:var(--muted);font-variation-settings:"wdth" 90}
+  /* The recogniser's raw output. Kept visible rather than hidden: when a turn goes wrong this
+     is the only way to see whether the recogniser or the model was at fault, and this is a
+     research demo before it is anything else. */
+  .raw{margin:.5rem 0 0;font-size:.8rem;color:var(--clay)}
+  .raw:empty{display:none}
+
+  /* ------------------------------------------------------------------- controls */
+  .controls{
+    display:flex;flex-direction:column;align-items:center;gap:.9rem;
+    padding:clamp(1.4rem,4vh,2.2rem) 1.1rem clamp(1.6rem,5vh,2.4rem);
+  }
+  .mic{
+    display:inline-flex;align-items:center;gap:.7rem;
+    padding:.78rem 1.5rem;border:0;border-radius:999px;
+    background:var(--saffron);color:#261702;
+    font-family:var(--sans);font-weight:700;font-size:1.02rem;
+    font-variation-settings:"wdth" 92;cursor:pointer;
+    transition:background .16s ease,transform .12s ease;
+  }
+  .mic:hover:not(:disabled){background:#f5ac2b}
+  .mic:active:not(:disabled){transform:translateY(1px)}
+  .mic:disabled{background:#2c3f5a;color:#7f93ad;cursor:not-allowed}
+  .mic[data-state="recording"]{background:var(--ember);color:#fff}
+  .mic .dot{width:.7rem;height:.7rem;border-radius:50%;background:currentColor;flex:none}
+  .voice-pick{
+    display:inline-flex;align-items:center;gap:.5rem;
+    font-size:.82rem;font-weight:600;color:var(--muted);
+    font-variation-settings:"wdth" 90;
+  }
+  .voice-pick select{
+    font-family:var(--sans);font-size:.88rem;font-weight:600;
+    color:var(--ink);background:#17304e;border:1px solid #33475f;border-radius:8px;
+    padding:.42rem .7rem;cursor:pointer;
+  }
+  .voice-pick select:focus{outline:2px solid var(--saffron);outline-offset:2px}
+  .hint{margin:0;font-size:.8rem;color:var(--muted)}
+  .hint kbd{
+    font-family:var(--sans);font-weight:500;font-size:.78rem;
+    border:1px solid #33475f;border-radius:4px;padding:.05rem .34rem;
+  }
+  .error{margin:0;font-size:.86rem;color:#f0a496;min-height:1.2em;text-align:center}
+
+  .colophon{
+    border-top:1px solid rgba(242,239,232,.08);
+    padding:1rem clamp(1.1rem,4vw,2.6rem) 1.7rem;
+    font-size:.78rem;line-height:1.7;color:var(--muted);
+  }
+  .colophon div{max-width:70ch;margin:0 auto}
+  .colophon a{color:#c7d3e2;text-decoration:none;border-bottom:1px solid #33475f}
+  .colophon a:hover{border-bottom-color:#c7d3e2}
+
+  @media (prefers-reduced-motion:reduce){
+    *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <h1 class="wordmark">Ghana <span>Twi Voice Chat</span></h1>
+  <label class="voice-pick">Voice
+    <select id="voice" aria-label="Reply voice">
+      <option value="twi-1">twi-1</option>
+      <option value="twi-2">twi-2</option>
+      <option value="twi-3">twi-3</option>
+      <option value="twi-4">twi-4</option>
+      <option value="twi-5">twi-5</option>
+      <option value="twi-6" selected>twi-6 (default)</option>
+      <option value="twi-7">twi-7</option>
+      <option value="twi-8">twi-8</option>
+      <option value="twi-9">twi-9</option>
+      <option value="twi-10">twi-10</option>
+      <option value="twi-11">twi-11</option>
+      <option value="twi-12">twi-12</option>
+    </select>
+  </label>
+</header>
+
+<main>
+  <div class="voice">
+    <canvas id="viz" aria-hidden="true"></canvas>
+    <div class="state" id="stateLabel">Connecting</div>
+  </div>
+  <p class="prompt" id="prompt">Press start and say something in Twi. She answers in Twi.</p>
+
+  <div class="said">
+    <p class="reply" id="reply" aria-live="polite"></p>
+    <p class="heard" id="heard" aria-live="polite"></p>
+    <p class="raw" id="raw"></p>
+  </div>
+</main>
+
+<div class="controls">
+  <button class="mic" id="mic" type="button" data-state="idle" disabled>
+    <span class="dot" aria-hidden="true"></span><span id="micLabel">Speak</span>
+  </button>
+  <p class="hint">It sends by itself when you stop talking. <kbd>Space</kbd> starts too.</p>
+  <p class="error" id="error" role="status"></p>
+  <!-- In the document rather than a detached `new Audio()`, so playback state is inspectable
+       from the page itself when a reply does not come out of the speakers. -->
+  <audio id="player" preload="auto" hidden></audio>
+</div>
+
+<footer class="colophon">
+  <div>
+    Speech recognition by <a href="https://huggingface.co/Qlerqly/griot-nano-1" rel="noopener">griot-nano-1</a>
+    with KenLM, a Conformer trained on Akan, Dagbani, Ewe, Ga and Ghanaian English. Voice by
+    <a href="https://github.com/GhanaNLP/stable-twi-tts" rel="noopener">stable-twi-tts</a>. The
+    reply is written by Gemini from the transcript. Akan is the recogniser's hardest language, so
+    she will sometimes mishear and answer the wrong question. Your recording is sent for the
+    length of one answer and is not stored.
+  </div>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+
+  const DEFAULT_API = "https://ghana-nlp-2--ghana-twi-voice-twivoice-web.modal.run";
+  const params = new URLSearchParams(location.search);
+  const API = (params.get("api") || DEFAULT_API).replace(/\/+$/, "");
+  // What the recogniser heard and how the model read it are diagnostics, not conversation, so
+  // they stay off unless asked for. Keeping them reachable matters: when a turn goes wrong they
+  // are the only way to tell whether the recogniser or the model was at fault.
+  const DEBUG = params.has("debug");
+  const WS_URL = API.replace(/^http/, "ws") + "/ws";
+
+  const el = id => document.getElementById(id);
+  const canvas = el("viz"), stateLabel = el("stateLabel"), promptEl = el("prompt");
+  const replyEl = el("reply"), heardEl = el("heard"), rawEl = el("raw"), saidEl = document.querySelector(".said");
+  const mic = el("mic"), micLabel = el("micLabel"), errorEl = el("error");
+  const voiceEl = el("voice");
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Remember the chosen reply voice between visits.
+  const VOICE_KEY = "ghana-twi-voice:voice";
+  let chosenVoice = localStorage.getItem(VOICE_KEY) || "twi-6";
+  voiceEl.value = chosenVoice;
+
+  function sendVoice() {
+    chosenVoice = voiceEl.value;
+    localStorage.setItem(VOICE_KEY, chosenVoice);
+    if (wsReady) ws.send(JSON.stringify({ type: "voice", name: chosenVoice }));
+  }
+  voiceEl.addEventListener("change", sendVoice);
+
+  // Voice activity detection. The point is that nobody should have to press a button to say
+  // "I have finished talking" -- but a wrong guess is expensive in both directions, so every
+  // number here is a guard against a specific failure:
+  //   the floor is measured from the room rather than fixed, because a hard threshold either
+  //   never triggers in a noisy room or triggers constantly in a quiet one;
+  //   MIN_SPEECH stops a cough or a door closing from being sent as an utterance;
+  //   HANGOVER is long enough to survive the pause in the middle of a sentence -- Twi
+  //   questions often have one before the final particle -- and short enough not to feel slow;
+  //   MAX_UTTERANCE and NO_SPEECH stop a hot microphone recording until the tab is closed.
+  const VAD = {
+    WARMUP_MS: 120,        // let the capture stream settle before believing anything
+    ONSET_FACTOR: 2.2,     // speech has to exceed the measured floor by this much
+    ONSET_FLOOR: 0.008,    // ...and clear this absolute minimum, for a silent room
+    // The floor is a running minimum, and clamping it is what makes that safe. An earlier
+    // version averaged the first 350 ms and called that the noise floor, which breaks in the
+    // most ordinary case there is: press start, start talking. It then measured the speaker's
+    // own voice as silence, set the threshold above it, and never heard them at all.
+    FLOOR_MAX: 0.02,
+    MIN_SPEECH_MS: 350,
+    HANGOVER_MS: 900,
+    MAX_UTTERANCE_MS: 15000,
+    NO_SPEECH_MS: 8000,
+    TICK_MS: 40,
+  };
+
+  let ws = null, wsReady = false;
+  let state = "connecting";          // connecting | ready | recording | thinking | speaking
+  let recorder = null, chunks = [], stream = null, discard = false;
+  let vadTimer = null, vadBuf = null, vad = null, silenceProgress = 0;
+  let audioCtx = null, micAnalyser = null, playAnalyser = null, playSource = null;
+  const player = el("player");
+
+  let queue = [], playing = false, expecting = false;
+
+  // ------------------------------------------------------------------ visualiser
+  // One canvas, driven by whichever analyser is live: the microphone while recording, the
+  // reply while speaking. Motion here is never decorative -- it is the actual signal, which is
+  // the only thing that makes an audio-only page feel alive rather than merely animated.
+  const BARS = 76;
+  const level = new Float32Array(BARS);   // smoothed, so bars fall rather than flicker
+  let phase = 0;
+
+  const COLORS = {
+    connecting: ["#3a4f6b", "#3a4f6b"],
+    ready:      ["#3f9c68", "#2c6f4a"],
+    recording:  ["#e5533d", "#b83c2a"],
+    thinking:   ["#e8a020", "#b87914"],
+    speaking:   ["#e8a020", "#3f9c68"],
+  };
+
+  function fit() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const size = canvas.clientWidth || 320;
+    canvas.width = canvas.height = Math.round(size * dpr);
+  }
+  addEventListener("resize", fit);
+
+  function analyserNow() {
+    if (state === "recording") return micAnalyser;
+    if (state === "speaking") return playAnalyser;
+    return null;
+  }
+
+  let freq = null;
+  function frame() {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2;
+    const base = Math.min(w, h) * 0.28;
+    ctx.clearRect(0, 0, w, h);
+
+    const an = analyserNow();
+    let rms = 0;
+    if (an) {
+      if (!freq || freq.length !== an.frequencyBinCount) freq = new Uint8Array(an.frequencyBinCount);
+      an.getByteFrequencyData(freq);
+      // Low bins carry speech; the top of the spectrum is mostly empty and would flatten the ring.
+      const usable = Math.floor(freq.length * 0.62);
+      for (let i = 0; i < BARS; i++) {
+        const a = Math.floor(i / BARS * usable), b = Math.floor((i + 1) / BARS * usable);
+        let m = 0;
+        for (let j = a; j < Math.max(b, a + 1); j++) m = Math.max(m, freq[j]);
+        const v = m / 255;
+        level[i] += (v - level[i]) * (v > level[i] ? 0.5 : 0.12);
+        rms += level[i];
+      }
+      rms /= BARS;
+    } else {
+      // Idle and thinking have no audio, so the ring breathes instead of pretending to react.
+      phase += reduceMotion ? 0 : 0.012;
+      const breathe = state === "thinking" ? 0.30 + 0.16 * Math.sin(phase * 3.1)
+                                           : 0.12 + 0.05 * Math.sin(phase);
+      for (let i = 0; i < BARS; i++) {
+        const wave = breathe * (0.72 + 0.28 * Math.sin(phase * 2 + i * 0.42));
+        level[i] += (wave - level[i]) * 0.08;
+        rms += level[i];
+      }
+      rms /= BARS;
+    }
+
+    const [c1, c2] = COLORS[state] || COLORS.ready;
+    const grad = ctx.createLinearGradient(0, cy - base * 2, 0, cy + base * 2);
+    grad.addColorStop(0, c1); grad.addColorStop(1, c2);
+
+    // soft glow behind the ring, tied to loudness
+    const glow = ctx.createRadialGradient(cx, cy, base * 0.2, cx, cy, base * (1.5 + rms));
+    glow.addColorStop(0, c1 + "44"); glow.addColorStop(1, c1 + "00");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(cx, cy, base * (1.55 + rms), 0, Math.PI * 2); ctx.fill();
+
+    // radial bars
+    ctx.strokeStyle = grad;
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(2, base * 0.045);
+    for (let i = 0; i < BARS; i++) {
+      const ang = (i / BARS) * Math.PI * 2 - Math.PI / 2;
+      const len = base * (0.16 + level[i] * 0.85);
+      const r0 = base * 1.02;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
+      ctx.lineTo(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
+      ctx.stroke();
+    }
+
+    // inner ring, thickening with loudness
+    ctx.beginPath();
+    ctx.arc(cx, cy, base * 0.92, 0, Math.PI * 2);
+    ctx.lineWidth = Math.max(1.5, base * (0.02 + rms * 0.05));
+    ctx.strokeStyle = grad;
+    ctx.stroke();
+
+    // While a pause is being counted out, an arc drains around the ring. Without it the send
+    // happens for reasons invisible to the speaker; with it, stopping mid-sentence and starting
+    // again is something you can see yourself doing.
+    if (state === "recording" && silenceProgress > 0.08) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, base * 0.92, -Math.PI / 2,
+              -Math.PI / 2 + (1 - silenceProgress) * Math.PI * 2);
+      ctx.lineWidth = Math.max(2, base * 0.055);
+      ctx.strokeStyle = "#e8a020";
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------------- state
+  const LABEL = {
+    connecting: "Connecting", ready: "Ready", recording: "Listening",
+    thinking: "Thinking", speaking: "Speaking",
+  };
+  function setState(s) {
+    state = s;
+    stateLabel.textContent = LABEL[s] || s;
+    mic.dataset.state = s === "recording" ? "recording" : "idle";
+    micLabel.textContent = s === "recording" ? "Send now" : "Start";
+    mic.disabled = (s === "connecting" || s === "thinking" || s === "speaking");
+  }
+  const fail = m => { errorEl.textContent = m || ""; };
+
+  // ------------------------------------------------------------------- playback
+  function ensureAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    playAnalyser = audioCtx.createAnalyser();
+    playAnalyser.fftSize = 1024;
+    playAnalyser.smoothingTimeConstant = 0.72;
+    // A MediaElementSource can only be created once per element, which is why playback reuses
+    // a single Audio element for every clause instead of one element per clip.
+    playSource = audioCtx.createMediaElementSource(player);
+    playSource.connect(playAnalyser);
+    playAnalyser.connect(audioCtx.destination);
+  }
+
+  player.addEventListener("ended", () => { playNext(); });
+  player.addEventListener("error", () => { playNext(); });
+
+  function playNext() {
+    const url = queue.shift();
+    if (!url) {
+      playing = false;
+      if (state === "speaking") setState("ready");
+      return;
+    }
+    playing = true;
+    player.src = url;
+    player.play().then(() => setState("speaking")).catch(err => {
+      fail("Your browser blocked audio playback. Press speak again.");
+      URL.revokeObjectURL(url);
+      playNext();
+    });
+  }
+
+  function enqueue(blob) {
+    queue.push(URL.createObjectURL(blob));
+    if (!playing) playNext();
+  }
+
+  // ------------------------------------------------------------------ websocket
+  function connect() {
+    setState("connecting");
+    ws = new WebSocket(WS_URL);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => { wsReady = true; fail(""); sendVoice(); setState("ready"); };
+
+    ws.onmessage = ev => {
+      if (typeof ev.data !== "string") {
+        if (expecting) { enqueue(new Blob([ev.data], { type: "audio/mpeg" })); expecting = false; }
+        return;
+      }
+      const m = JSON.parse(ev.data);
+      switch (m.type) {
+        case "status":
+          if (m.stage === "thinking") setState("thinking");
+          break;
+        case "transcript":
+          if (DEBUG) {
+            rawEl.textContent = m.text ? `recogniser heard: “${m.text}”` : "recogniser heard nothing";
+          }
+          break;
+        case "understood":
+          // "You said" is a claim, so only make it when the model says it is reasonably sure.
+          if (!DEBUG) break;
+          if (m.text && m.confident !== false) {
+            heardEl.innerHTML = "<b>You said</b> " + esc(m.text);
+          } else if (m.text) {
+            heardEl.innerHTML = "<b>Perhaps</b> " + esc(m.text);
+          } else {
+            heardEl.textContent = "";
+          }
+          break;
+        case "reply":
+          replyEl.textContent = m.text || "";
+          saidEl.classList.toggle("has-reply", !!(m.text));
+          break;
+        case "audio":
+          expecting = true;
+          break;
+        case "warning":
+          console.warn("clause skipped:", m.detail);
+          break;
+        case "done":
+          if (!m.clauses && !playing) { setState("ready"); fail("Nothing came back — try again."); }
+          break;
+        case "error":
+          setState("ready"); fail(m.detail || "Something went wrong.");
+          break;
+      }
+    };
+
+    ws.onclose = () => {
+      wsReady = false;
+      if (state === "recording") stopRecording();
+      setState("connecting");
+      fail("Disconnected — reconnecting.");
+      setTimeout(connect, 2000);
+    };
+    ws.onerror = () => {};
+  }
+
+  const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+  // ------------------------------------------------------------------ recording
+  function pickMime() {
+    for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""]) {
+      if (!m || MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return "";
+  }
+
+  async function startRecording() {
+    if (!wsReady || state !== "ready") return;
+    fail("");
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+    } catch (err) {
+      fail(err && err.name === "NotAllowedError"
+        ? "Microphone blocked — allow it in your browser settings."
+        : "No microphone found.");
+      return;
+    }
+
+    ensureAudio();
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+    micAnalyser = audioCtx.createAnalyser();
+    micAnalyser.fftSize = 1024;
+    micAnalyser.smoothingTimeConstant = 0.7;
+    // Deliberately not connected to the destination: routing the microphone to the speakers
+    // would feed straight back into it.
+    audioCtx.createMediaStreamSource(stream).connect(micAnalyser);
+
+    chunks = [];
+    const mime = pickMime();
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = send;
+    recorder.start();
+    discard = false;
+    setState("recording");
+    startVad();
+  }
+
+  // Runs on a timer rather than inside the animation frame loop: requestAnimationFrame stops
+  // when the tab is in the background, which would leave a recording running forever with no
+  // way to notice the speaker had finished.
+  function startVad() {
+    vad = { began: performance.now(), last: performance.now(),
+            floor: null, speechMs: 0, silenceMs: 0, sawSpeech: false };
+    vadBuf = new Uint8Array(micAnalyser.fftSize);
+    silenceProgress = 0;
+    vadTimer = setInterval(tickVad, VAD.TICK_MS);
+  }
+
+  function stopVad() {
+    clearInterval(vadTimer);
+    vadTimer = null; vad = null; silenceProgress = 0;
+  }
+
+  function tickVad() {
+    if (!micAnalyser || !vad || state !== "recording") return;
+    const now = performance.now();
+    const dt = now - vad.last;
+    vad.last = now;
+
+    micAnalyser.getByteTimeDomainData(vadBuf);
+    let sum = 0;
+    for (let i = 0; i < vadBuf.length; i++) {
+      const d = (vadBuf[i] - 128) / 128;
+      sum += d * d;
+    }
+    const rms = Math.sqrt(sum / vadBuf.length);
+
+    if (now - vad.began < VAD.WARMUP_MS) return;
+
+    // The quietest thing heard so far is the room, so "quiet" means quiet *here* -- but capped,
+    // so that someone who talks from the first frame cannot raise the bar above their own voice.
+    vad.floor = Math.min(vad.floor === null ? rms : Math.min(vad.floor, rms), VAD.FLOOR_MAX);
+    const threshold = Math.max(vad.floor * VAD.ONSET_FACTOR, VAD.ONSET_FLOOR);
+    if (rms > threshold) {
+      vad.speechMs += dt;
+      vad.silenceMs = 0;
+      if (vad.speechMs >= VAD.MIN_SPEECH_MS) vad.sawSpeech = true;
+    } else if (vad.sawSpeech) {
+      vad.silenceMs += dt;
+    }
+    silenceProgress = vad.sawSpeech ? Math.min(vad.silenceMs / VAD.HANGOVER_MS, 1) : 0;
+
+    if (vad.sawSpeech && vad.silenceMs >= VAD.HANGOVER_MS) return stopRecording();
+    if (now - vad.began >= VAD.MAX_UTTERANCE_MS) return stopRecording();
+    if (!vad.sawSpeech && now - vad.began >= VAD.NO_SPEECH_MS) {
+      discard = true;
+      stopRecording();
+      fail("I did not hear anything. Press start and speak.");
+    }
+  }
+
+  function stopRecording() {
+    if (state !== "recording") return;
+    stopVad();
+    try { recorder.stop(); } catch (_) {}
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    micAnalyser = null;
+  }
+
+  async function send() {
+    const blob = new Blob(chunks, { type: chunks[0] ? chunks[0].type : "audio/webm" });
+    chunks = [];
+    // Set when the detector gave up rather than heard the end of a sentence, so an empty
+    // recording is not sent for transcription.
+    if (discard) { discard = false; setState("ready"); return; }
+    if (blob.size < 1200) { setState("ready"); fail("That was too short — try again."); return; }
+    if (!wsReady) { setState("ready"); fail("Disconnected."); return; }
+    replyEl.textContent = ""; heardEl.textContent = ""; rawEl.textContent = "";
+    promptEl.classList.add("spent");
+    setState("thinking");
+    ws.send(await blob.arrayBuffer());
+  }
+
+  const toggle = () => (state === "recording" ? stopRecording() : startRecording());
+  mic.addEventListener("click", toggle);
+  document.addEventListener("keydown", e => {
+    if (e.code === "Space" && e.target === document.body) { e.preventDefault(); toggle(); }
+  });
+
+  fit();
+  requestAnimationFrame(frame);
+  // Wake the container while the page is being read, rather than while someone waits mid-turn.
+  fetch(API + "/health").catch(() => {}).finally(connect);
+})();
+</script>
+</body>
+</html>
