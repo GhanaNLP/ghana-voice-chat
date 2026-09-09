@@ -2,8 +2,8 @@
 
 Speak Twi into a microphone; a Ghanaian voice answers you in Twi.
 
-- **Frontend** — https://huggingface.co/spaces/ghananlpcommunity/ghana-twi-voice-chat (static Space)
-- **Backend** — `https://ghana-nlp-2--ghana-twi-voice-twivoice-web.modal.run` (Modal, CPU)
+- **Live Space** — https://huggingface.co/spaces/ghananlpcommunity/ghana-twi-voice-chat (Docker, CPU)
+- **Repo** — https://github.com/GhanaNLP/ghana-voice-chat
 
 ## One turn
 
@@ -22,7 +22,8 @@ realtime** and recognition at **0.09–0.19x**, both on CPU. Warm, a turn is abo
 audio**, most of it the Gemini call.
 
 **Nothing here needs a GPU**, which is the main thing that changed from the Wav2Lip version in
-`archive/`: dropping video dropped torch's CUDA build, and cold start went from ~37 s to ~13 s.
+`archive/`. The whole app runs on a CPU Docker Space: cold start is a few seconds (models are
+baked into the image).
 
 ## Why recognition is a separate model
 
@@ -45,33 +46,36 @@ fault, so it is worth reaching for before changing anything.
 
 | | |
 |---|---|
-| `modal_app.py` | Image, the `TwiVoice` class, and the HTTP/websocket surface |
+| `app.py` | Standalone FastAPI backend: ASR → Gemini → TTS, WebSocket, serves the frontend |
 | `asr.py` | griot-nano-1 wrapper: feature extraction, CTC, KenLM beam search |
-| `frontend/` | The static Space: `index.html` and its Space config in `README.md` |
+| `frontend/` | The page: `index.html` (visualiser, VAD, voice selector) |
 | `assets/multilingual.bin` | KenLM binary trie, prebuilt — see below |
-| `archive/` | The parked Wav2Lip talking-head pipeline (no longer used) |
+| `modal_app.py` | The old Modal backend, kept as reference (no longer deployed) |
+| `archive/` | The parked Wav2Lip talking-head pipeline |
 
 ## Deploying
 
-```bash
-.venv/bin/modal deploy modal_app.py
-```
-
-The frontend is pushed with git, not `hf upload` — `hf upload` re-runs repo creation without an
-SDK and trips the org's paywall on a repo that already exists as static:
+This runs as a **Docker Space** on Hugging Face (CPU hardware, so it uses paid credits — not the
+free tier). The Space serves both the Flask/FastAPI backend and the static frontend from one
+container — no Modal billing.
 
 ```bash
+# Set GEMINI_API_KEY as a Space secret (Settings → Secrets) — required, the app cannot answer
+# without it. Then push the repo:
 git clone https://huggingface.co/spaces/ghananlpcommunity/ghana-twi-voice-chat
-cp frontend/index.html frontend/README.md .   # then commit and push
+cp app.py asr.py Dockerfile requirements.txt index.html assets/ .
+git add -A && git commit -m "update" && git push
 ```
 
-### After a redeploy, drain the old containers
+Hardware: request `cpu-upgrade` (or a GPU flavor if you want it faster) in the Space settings.
+The KenLM binary is baked into the image, so cold start is seconds.
 
-`modal deploy` leaves existing containers serving. Three times during this build a fix looked
-like it had not worked when in fact old code was still answering. Run
-`modal app stop -y ghana-twi-voice` before deploying, and check `/health` — it reports the ASR
-model, whether KenLM loaded, and the warmup time, specifically so the running version is
-identifiable from outside.
+### The old Modal backend
+
+This previously ran on Modal (`modal_app.py`, kept for reference) but Modal bills for idle
+containers when the app is kept resident. The Docker Space is self-contained and only runs when
+the Space is running. `modal_app.py` remains for anyone who still wants the Modal version; the
+Docker/`app.py` version is the maintained path.
 
 ## Things that will bite
 

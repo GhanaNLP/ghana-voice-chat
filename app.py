@@ -420,8 +420,12 @@ async def ws(sock: WebSocket):
 
 
 # Serve the frontend static files at / (must come after API routes)
-frontend_dir = Path(__file__).parent / "frontend"
-if frontend_dir.is_dir():
+# Works with the repo-root layout on HF (index.html next to app.py) and the local
+# frontend/ subdirectory layout.
+_here = Path(__file__).resolve().parent
+frontend_dir = next((d for d in (_here, _here / "frontend")
+                     if (d / "index.html").is_file()), None)
+if frontend_dir:
     api.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
 app = WebsocketCloseShim(api)
