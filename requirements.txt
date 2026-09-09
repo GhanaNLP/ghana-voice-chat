@@ -1,0 +1,19 @@
+numpy==1.26.4
+scipy==1.14.1
+soundfile==0.12.1
+safetensors==0.4.5
+tokenizers==0.20.3
+kenlm==0.2.0
+pyctcdecode==0.5.0
+huggingface_hub==0.26.2
+stable-twi-tts[twi]==0.2.1
+ghana-g2p==0.1.1
+# Pinned, and the pin is load-bearing. ghana-g2p asks only for `africa-g2p>=0.1.1`, so a fresh
+# build picks up 0.2.0, which writes affricates with a combining tie bar -- 'd͡ʑ' (U+0361) where
+# the voice's symbol table has 'dʑ', and 't͡ɕʰ' where it has 'tɕʰ'. Those are the sounds Twi
+# spells `gy` and `ky`, so with 0.2.0 installed almost every real Twi sentence dies in the
+# front-end with PhonemeError and there is nothing to say. 0.1.1 is the voice's native inventory.
+africa-g2p==0.1.1
+google-genai==2.22.0
+fastapi==0.115.6
+uvicorn[standard]==0.32.0

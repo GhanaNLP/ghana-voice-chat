@@ -209,7 +209,9 @@
 (() => {
   "use strict";
 
-  const DEFAULT_API = "https://ghana-nlp-2--ghana-twi-voice-twivoice-web.modal.run";
+  const DEFAULT_API = window.location.protocol === "http:" || window.location.protocol === "https:"
+    ? window.location.origin
+    : "https://ghana-nlp-2--ghana-twi-voice-twivoice-web.modal.run";
   const params = new URLSearchParams(location.search);
   const API = (params.get("api") || DEFAULT_API).replace(/\/+$/, "");
   // What the recogniser heard and how the model read it are diagnostics, not conversation, so
