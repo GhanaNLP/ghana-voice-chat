@@ -2,28 +2,50 @@
 
 Speak Twi into a microphone; a Ghanaian voice answers you in Twi.
 
-- **Live Space** — https://huggingface.co/spaces/ghananlpcommunity/ghana-twi-voice-chat (Docker, CPU)
-- **Repo** — https://github.com/GhanaNLP/ghana-voice-chat
+## Quick start
 
-## One turn
+**System requirements:** Linux or macOS (Windows works but ffmpeg + kenlm need extra care).
+Python 3.11+, a microphone, and [ffmpeg](https://ffmpeg.org) on PATH.
+
+```bash
+git clone https://github.com/GhanaNLP/ghana-voice-chat
+cd ghana-voice-chat
+python -m venv .venv && . .venv/bin/activate
+
+# system deps needed by kenlm (Debian/Ubuntu — macOS: use brew):
+sudo apt install build-essential cmake libboost-program-options-dev \
+    libboost-system-dev libboost-thread-dev zlib1g-dev libbz2-dev liblzma-dev ffmpeg
+
+pip install -r requirements.txt
+
+export GEMINI_API_KEY=...        # required — the app will not work without this
+
+python download_models.py        # fetches griot-nano-1 (~585 MB) + stable-twi-tts voice
+
+uvicorn app:app --reload --port 8000
+# open http://localhost:8000
+```
+
+`download_models.py` downloads the ASR model into `./griot` and the TTS voice into the HF cache.
+The KenLM binary trie (`assets/multilingual.bin`) is already in the repo (76 MB) — no build step.
+
+## How it works
 
 ```
 mic (webm/opus)
-  -> ffmpeg                 -> 16 kHz mono
-  -> griot-nano-1 + KenLM   -> a Twi transcript        Conformer-CTC, on CPU
-  -> Gemini 2.5 Flash       -> {understood, reply}     reads a noisy transcript, answers in Twi
-  -> stable-twi-tts         -> 22.05 kHz speech        ONNX, voice twi-6
-  -> libmp3lame             -> one MP3 per sentence, pushed over the websocket as it is ready
+  → ffmpeg                 → 16 kHz mono
+  → griot-nano-1 + KenLM   → a Twi transcript       Conformer-CTC, on CPU
+  → Gemini 2.5 Flash       → {understood, reply}    reads a noisy transcript, answers in Twi
+  → stable-twi-tts         → 22.05 kHz speech       ONNX, 12 selectable Twi voices
+  → libmp3lame             → one MP3 per sentence, pushed over the websocket as it is ready
 ```
 
-Replies are capped at two sentences and each is synthesised as soon as the previous one is sent,
-so she starts talking while the rest is still being made. Synthesis runs at about **0.2–0.4x
-realtime** and recognition at **0.09–0.19x**, both on CPU. Warm, a turn is about **4 s to first
-audio**, most of it the Gemini call.
+Replies are capped at two sentences, each synthesised as soon as the previous one is sent so she
+starts talking while the rest is still being made. Synthesis is **0.2–0.4× realtime**, recognition
+**0.09–0.19×**, both on CPU. A turn takes roughly **4 s to first audio**, dominated by Gemini.
 
-**Nothing here needs a GPU**, which is the main thing that changed from the Wav2Lip version in
-`archive/`. The whole app runs on a CPU Docker Space: cold start is a few seconds (models are
-baked into the image).
+**Nothing here needs a GPU.** On a modern laptop the recogniser measures 0.09× realtime on six
+threads, and stable-twi-tts is ONNX on CPU.
 
 ## Why recognition is a separate model
 
@@ -46,36 +68,43 @@ fault, so it is worth reaching for before changing anything.
 
 | | |
 |---|---|
-| `app.py` | Standalone FastAPI backend: ASR → Gemini → TTS, WebSocket, serves the frontend |
+| `app.py` | FastAPI backend: ASR → Gemini → TTS, WebSocket, serves the frontend |
 | `asr.py` | griot-nano-1 wrapper: feature extraction, CTC, KenLM beam search |
+| `download_models.py` | One-time script: fetches griot-nano-1 + TTS voice (~600 MB total) |
 | `frontend/` | The page: `index.html` (visualiser, VAD, voice selector) |
-| `assets/multilingual.bin` | KenLM binary trie, prebuilt — see below |
-| `modal_app.py` | The old Modal backend, kept as reference (no longer deployed) |
+| `assets/multilingual.bin` | KenLM binary trie, prebuilt (76 MB) |
+| `requirements.txt` | Python dependencies |
 | `archive/` | The parked Wav2Lip talking-head pipeline |
 
-## Deploying
+## Endpoints
 
-This runs as a **Docker Space** on Hugging Face (CPU hardware, so it uses paid credits — not the
-free tier). The Space serves both the Flask/FastAPI backend and the static frontend from one
-container — no Modal billing.
+| | |
+|---|---|
+| `GET /health` | Voice, ASR model, whether KenLM loaded, beam width, warmup time |
+| `GET /say?text=…` | Text → one MP3. No mic, no ASR, no Gemini; isolates the voice |
+| `WS /ws` | Send a recording as binary; receive `transcript`, `understood`, `reply`, then `audio` + MP3 pairs |
+
+The frontend uses `window.location.origin` as the API base by default, so when `app.py` serves
+both the page and the API everything is same-origin. Pass `?api=http://other:port` to point at
+a separate backend.
+
+## Deploying to Hugging Face Spaces (Docker)
+
+A Docker Space is included. It builds a single container serving both the API and the page.
 
 ```bash
-# Set GEMINI_API_KEY as a Space secret (Settings → Secrets) — required, the app cannot answer
-# without it. Then push the repo:
+# the HF Space repo — push the repo contents directly
 git clone https://huggingface.co/spaces/ghananlpcommunity/ghana-twi-voice-chat
-cp app.py asr.py Dockerfile requirements.txt index.html assets/ .
-git add -A && git commit -m "update" && git push
+# copy this repo's contents (app.py, asr.py, Dockerfile, assets/, frontend/, requirements.txt)
+# into that repo, then commit and push
 ```
 
-Hardware: request `cpu-upgrade` (or a GPU flavor if you want it faster) in the Space settings.
-The KenLM binary is baked into the image, so cold start is seconds.
+Set `GEMINI_API_KEY` in the Space settings → Secrets, and request `cpu-upgrade` hardware
+(Docker Spaces require paid hardware). The Dockerfile bakes all models into the image so the
+Space starts in seconds.
 
-### The old Modal backend
-
-This previously ran on Modal (`modal_app.py`, kept for reference) but Modal bills for idle
-containers when the app is kept resident. The Docker Space is self-contained and only runs when
-the Space is running. `modal_app.py` remains for anyone who still wants the Modal version; the
-Docker/`app.py` version is the maintained path.
+The old Modal deployment (`modal_app.py`, kept as reference) ran on Modal but billed continuously
+for idle containers. The HF Docker Space only runs when the Space is active.
 
 ## Things that will bite
 
@@ -92,7 +121,7 @@ hand-rolling Twi number morphology here.
 
 **KenLM ships as a prebuilt binary in `assets/`.** `pip install kenlm` builds the Python
 extension but not the `build_binary` executable, so the image cannot convert the published ARPA
-itself. The binary is better anyway: 80 MB against 225 MB, and it mmaps instantly where digesting
+itself. The binary is better anyway: 76 MB against 225 MB, and it mmaps instantly where digesting
 the ARPA costs 15–25 s of every container's startup. To regenerate, on a machine whose CMake is
 older than 4:
 
@@ -103,8 +132,8 @@ build_binary trie lm/multilingual.arpa assets/multilingual.bin
 ```
 
 **kenlm needs `CMAKE_POLICY_VERSION_MINIMUM=3.5` to compile.** Its CMakeLists declares a pre-3.5
-minimum and CMake 4 — which the base image ships — removed compatibility outright. This looks
-like a missing dependency and is not; a distro with CMake 3.x builds it without the flag.
+minimum and CMake 4 removed compatibility outright. This looks like a missing dependency and is not;
+a distro with CMake 3.x builds it without the flag.
 
 **Do not pass KenLM a unigram list.** pyctcdecode warns that it cannot recover unigrams from a
 binary LM and that accuracy "might be reduced", which reads like an instruction. Measured on Twi
@@ -116,27 +145,12 @@ to the ARPA and *worse* than the plain binary on one of two clips, inventing non
 strings, and FastAPI resolves them against *module* globals — so importing `WebSocket` inside the
 method that builds the app left `sock: WebSocket` unresolvable, and an unresolvable annotation is
 treated as a query parameter. Every connect closed with 1008 `Field required: query.sock`, which
-reached the browser as an opaque HTTP 500. The FastAPI imports live in `with image.imports():` at
-module scope for this reason.
-
-**Modal's websocket bridge cannot serialise every close frame.** It passes a close message's
-`reason` into a protobuf string field without checking it, and Starlette sends a validation
-failure's `reason` as a list of dicts — raising `TypeError: bad argument type for built-in
-operation` inside Modal's own serialiser, before the handshake completes. `WebsocketCloseShim`
-normalises the fields; without it every websocket error is an unreadable 500.
-
-## Endpoints
-
-| | |
-|---|---|
-| `GET /health` | Voice, ASR model, whether KenLM loaded, beam width, warmup time |
-| `GET /say?text=…` | Text → one MP3. No mic, no ASR, no Gemini; isolates the voice |
-| `WS /ws` | Send a recording as binary; receive `transcript`, `understood`, `reply`, then `audio` + MP3 pairs |
+reached the browser as an opaque HTTP 500. The FastAPI imports are at module scope for this reason.
 
 ## Licence
 
 griot-nano-1 and its KenLM model are **CC BY-NC-SA 4.0** — non-commercial and share-alike. That
-governs this deployment as a whole, so it is fine as a community demo and not fine inside a paid
+governs this project as a whole, so it is fine as a community demo and not fine inside a paid
 product. `stable-twi-tts` is MIT.
 
 ## Known rough edges

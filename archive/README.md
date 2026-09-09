@@ -8,6 +8,9 @@ to audio.
 
 If you come back to it:
 
+- `modal_app.py` is the old Modal-hosted backend, kept for reference. It billed continuously for
+  idle containers, so it's no longer used; the local FastAPI app (`app.py`) and the Docker Space
+  replaced it.
 - `modal_app_wav2lip.py` is the full Modal app (L4 GPU, `precompute` + `TalkingHead`).
 - `lipsync.py` holds the avatar frame store, the batched Wav2Lip forward, the feathered
   mouth-only blend, and MP4 muxing.

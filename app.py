@@ -1,4 +1,4 @@
-"""Ghana Twi Voice -- a spoken Twi conversation, served as a Docker HF Space.
+"""Ghana Twi Voice -- a spoken Twi conversation.
 
 One turn:
 
@@ -14,10 +14,13 @@ that does not work for Twi: given real Twi speech Gemini transcribed it as the E
 "Why won't you come out?" and confidently answered that instead. See asr.py.
 
 Nothing here needs a GPU. The recogniser runs at 0.09-0.19x realtime on CPU threads and the
-voice is ONNX, so the whole app is a CPU container -- which keeps cold start in seconds.
+voice is ONNX, so it runs happily on a laptop or a small CPU container.
 
-Deploy:
-    This runs as a Docker HF Space. The GEMINI_API_KEY env var must be set in the Space secrets.
+Run locally:
+    pip install -r requirements.txt
+    export GEMINI_API_KEY=...            # required; the app cannot answer without it
+    GRIOT_DIR=... LM_BIN=... uvicorn app:app --reload
+    # open http://localhost:8000 and press Start
 """
 from __future__ import annotations
 
@@ -37,8 +40,11 @@ from fastapi.staticfiles import StaticFiles
 
 GEMINI_MODEL = "gemini-2.5-flash"
 TTS_VOICE = "twi-6"
-GRIOT_DIR = Path("/app/griot")
-LM_BIN = Path("/app/assets/multilingual.bin")
+# Paths resolve relative to this repo by default, so the same code runs locally and in a
+# container that copies the repo. Override with environment variables if your layout differs.
+_HERE = Path(__file__).resolve().parent
+GRIOT_DIR = Path(os.environ.get("GRIOT_DIR", _HERE / "griot"))
+LM_BIN = Path(os.environ.get("LM_BIN", _HERE / "assets" / "multilingual.bin"))
 MAX_WS_BYTES = 1_800_000
 SEND_AUDIO_TO_GEMINI = True
 
